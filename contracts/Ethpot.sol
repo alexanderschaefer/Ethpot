@@ -53,7 +53,7 @@ contract Ethpot {
     /**
         Returns the winning percentage. 1 == 100%
     */
-    function getWinningChance() returns(ufixed0x8) {
+    function getWinningChance() returns(uint8) {
 
     }
 
@@ -61,14 +61,14 @@ contract Ethpot {
         Returns the number of accounts 
     */ 
     function getParticipants() returns(uint40) {
-        
+
     }
 
     /**
         Returns the current jackpot size in wei
     */
     function getCurrentJackpot() returns(uint) {
-
+        return this.balance;
     }
 
     /* 
