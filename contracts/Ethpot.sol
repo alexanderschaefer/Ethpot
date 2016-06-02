@@ -1,7 +1,12 @@
 contract Ethpot {
     address private owner;
     uint private ticketPrice = 0.01 ether;
-    mapping (address => uint) private balances;
+    // lottery fee in percent 1 == 1% 
+    uint8 private lotteryFee = 1;
+
+    mapping (address => uint) private tickets;
+    uint40 private participants;
+    uint private totalTickets;
 
     modifier onlyOwner() {
         if (msg.sender != owner) throw;
@@ -18,7 +23,7 @@ contract Ethpot {
         is interpreted as buying tickets
     **/
     function () {
-
+        buyTickets();
     }
 
     /**
@@ -26,8 +31,20 @@ contract Ethpot {
         the ETH that was sent to the contract. Refunds any remaining
         ETH to the sender. 
     */
-    function buyTickets() {
+    function buyTickets() {  // TODO: call buy tickets from any function to allow sending funds via any function call
+        if (msg.value < ticketPrice) throw;
 
+        var refund = msg.value % ticketPrice;
+        if (refund > 0) {
+            msg.sender.send(refund);
+        }
+
+        if (tickets[msg.sender] == 0) participants++;
+        var ts = msg.value / ticketPrice;
+        tickets[msg.sender] += ts;
+        totalTickets += ts;
+
+        owner.send(msg.value * lotteryFee / 100);
     }
 
     /**
@@ -50,18 +67,23 @@ contract Ethpot {
         return ticketPrice;
     }
 
+    // TODO: this can be a smaller int?
+    function getTickets() returns(uint) {
+        return tickets[msg.sender];
+    }
+
     /**
         Returns the winning percentage. 1 == 100%
     */
-    function getWinningChance() returns(uint8) {
-
+    function getWinningPercentage() returns(uint) {
+        return 100 * tickets[msg.sender] / totalTickets;
     }
 
     /**
         Returns the number of accounts 
     */ 
     function getParticipants() returns(uint40) {
-
+        return participants;
     }
 
     /**
@@ -76,6 +98,21 @@ contract Ethpot {
     **/
     function setTicketPrice(uint newPrice) onlyOwner {
         ticketPrice = newPrice;
+    }
+
+    /*
+        Returns lottery fee in percent. 1 == 1%
+    **/
+    function getLotteryFee() returns(uint8) {
+        return lotteryFee;
+    }
+
+    /*
+        Sets the lottery fee. Maximum possible fee 7%
+    **/
+    function setLotteryFee(uint8 newFee) onlyOwner { // TODO: fee must only be set for next drawing not current one
+        if (newFee > 7) throw;
+        lotteryFee = newFee;
     }
 
     /* Function to recover the funds on the contract */
