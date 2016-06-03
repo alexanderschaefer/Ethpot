@@ -7,6 +7,8 @@ contract Ethpot {
     mapping (address => uint) private tickets;
     uint40 private participants;
     uint private totalTickets;
+    // past winners array
+    string private seed; //TODO: should this string be limited in length to prevent attacks that spent all gas with huge strings?
 
     modifier onlyOwner() {
         if (msg.sender != owner) throw;
@@ -20,10 +22,12 @@ contract Ethpot {
     /*
         Fallback function used in this contract as means to participate 
         in the lottery. An account sending ETH to the contract, without data,
-        is interpreted as buying tickets
+        is interpreted as buying tickets.
+        An account may also call buyTickets directly in order to provide its own
+        seed
     **/
     function () {
-        buyTickets();
+        buyTickets(string(byte32ToBytes(uintToBytes(block.timestamp))));
     }
 
     /**
@@ -31,8 +35,10 @@ contract Ethpot {
         the ETH that was sent to the contract. Refunds any remaining
         ETH to the sender. 
     */
-    function buyTickets() {  // TODO: call buy tickets from any function to allow sending funds via any function call
+    function buyTickets(string pseed) {  // TODO: call buy tickets from any function to allow sending funds via any function call
         if (msg.value < ticketPrice) throw;
+
+        seed = strConcat(seed, pseed);
 
         var refund = msg.value % ticketPrice;
         if (refund > 0) {
@@ -52,8 +58,10 @@ contract Ethpot {
         Only draws the winner if the time condition for the jackpot is met. E.g.
         only one drawing per day
     */
-    function drawWinner() {
+    function drawWinner() returns(uint) { // TODO: time condition
+        seed = strConcat(seed, string(byte32ToBytes(uintToBytes(block.timestamp))));
 
+        return uint(sha3(seed)) % totalTickets;
     }
 
     function getOwner() returns(address) {
@@ -113,6 +121,44 @@ contract Ethpot {
     function setLotteryFee(uint8 newFee) onlyOwner { // TODO: fee must only be set for next drawing not current one
         if (newFee > 7) throw;
         lotteryFee = newFee;
+    }
+
+    function getRandomNumber(string seed) private returns(bytes32) {
+        //return sha3(seed);
+        return uintToBytes(block.timestamp);
+    }
+
+    function strConcat(string a, string b) private returns (string) {
+        bytes memory b_a = bytes(a);
+        bytes memory b_b = bytes(b);
+        string memory ab = new string(b_a.length + b_b.length);
+        bytes memory b_ab = bytes(ab);
+        uint k = 0;
+
+        for (uint i = 0; i < b_a.length; i++) b_ab[k++] = b_a[i];
+        for (i = 0; i < b_b.length; i++) b_ab[k++] = b_b[i];
+
+        return string(b_ab);
+    }
+
+    function byte32ToBytes(bytes32 b) private returns (bytes) {
+        bytes memory bm = new bytes(b.length);
+        for (uint i = 0; i < b.length; i++) bm[i] = b[i];
+        return bm;
+    }
+
+    function uintToBytes(uint v) constant private returns (bytes32 ret) {
+        if (v == 0) {
+            ret = '0';
+        }
+        else {
+            while (v > 0) {
+                ret = bytes32(uint(ret) / (2 ** 8));
+                ret |= bytes32(((v % 10) + 48) * 2 ** (8 * 31));
+                v /= 10;
+            }
+        }
+        return ret;
     }
 
     /* Function to recover the funds on the contract */
