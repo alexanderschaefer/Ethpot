@@ -1,23 +1,44 @@
 contract Ethpot {
-    struct Winner {
-        address winner;
-        uint jackpot;
+    struct Player {
+        address addr;
+        uint winning;
     }
 
     address private owner;
     uint private ticketPrice = 0.01 ether;
-    // lottery fee in percent 1 == 1% 
-    uint8 private lotteryFee = 1;
+    uint8 private lotteryFee = 1;           // lottery fee in percent 1 == 1% 
+    uint private roundDuration = 1 days;
 
     mapping (address => uint) private tickets;
     address[] private ticketAddresses;
-    uint40 private participants;
-    Winner[] public pastWinners; 
-    // TODO: past winners array
+    Player[] private participants;
+    uint private currentRoundTimestamp = 0;
+    bool private lotteryEnabled = true;
     bytes32 private seed; 
+    Player[] public pastWinners; 
 
     modifier onlyOwner() {
         if (msg.sender != owner) throw;
+        _
+    }
+
+    modifier onlyLotteryEnabled() {
+        if (!lotteryEnabled) throw; 
+        _
+    }
+
+    modifier onlyRoundActive() {
+        if (currentRoundTimestamp + roundDuration <= now) throw;
+        _
+    }
+
+    modifier onlyRoundNotActive() {
+        if (currentRoundTimestamp + roundDuration > now) throw;
+        _
+    }
+
+    modifier onlyNoParticipants() { 
+        if (participants.length > 0) throw;
         _
     }
 
@@ -26,11 +47,17 @@ contract Ethpot {
         _
     }
 
-    function Ethpot() {
+    /**
+        Takes random string to initialize seed
+    */
+    function Ethpot(string secret) {
         owner = msg.sender;
+        resetLottery();
+        newRound(secret); 
     }
 
     //TODO: provide good server seed upon starting lottery. start lottery function
+    //TODO: write unit tests truffle
 
     /**
         Fallback function used in this contract as means to participate 
@@ -48,8 +75,9 @@ contract Ethpot {
         Determines the number of tickets that can be bought with 
         the ETH that was sent to the contract. Refunds any remaining
         ETH to the sender. 
+        Takes random string secret for seed
     */
-    function buyTickets(string secret) {  
+    function buyTickets(string secret) onlyRoundActive {  
         if (msg.value < ticketPrice) throw;
 
         updateSeed(secret);
@@ -60,7 +88,12 @@ contract Ethpot {
                 throw;
         }
 
-        if (tickets[msg.sender] == 0) participants++;
+        if (tickets[msg.sender] == 0) {
+            participants.push(Player({
+                addr: msg.sender,
+                winning: 0
+            }));
+        } 
         var ts = msg.value / ticketPrice;
         tickets[msg.sender] += ts;
         pushTickets(ts, msg.sender);
@@ -73,23 +106,27 @@ contract Ethpot {
         Draws the winner(s) and transfers the jackpot to the winner(s).
         Only draws the winner if the time condition for the jackpot is met. E.g.
         only one drawing per day
+        Takes random string secret to initialize a new seed. 
     
     */
-    function drawWinner() checkSenderValue returns(address) { // TODO: time condition and reset of lottery
-        if (this.balance == 0) throw;
-        address winner = ticketAddresses[uint(sha3(seed, uintToString(block.timestamp))) % ticketAddresses.length];
-        uint pot = this.balance;
-        if (!winner.send(this.balance))
-                throw;
+    function drawWinner(string secret) onlyRoundNotActive checkSenderValue returns(address) { 
+        address winner = 0x0;
+        if (participants.length > 0) {
+            winner = ticketAddresses[uint(sha3(seed, uintToString(block.timestamp))) % ticketAddresses.length];
+            uint pot = this.balance;
+            if (!winner.send(this.balance))
+                    throw;
 
-        pastWinners.push(Winner({
-            winner: address,
-            jackpot: pot
-        }))
+            pastWinners.push(Player({
+                addr: winner,
+                winning: pot
+            }));
+        }
+        resetLottery();
+        if (lotteryEnabled) newRound(secret);  
+
         return winner;
     }
-
-    // TODO: owner function to reset lottery
 
     /**
         Returns the current ticket price in wei
@@ -104,7 +141,7 @@ contract Ethpot {
     }
 
     /**
-        Returns the winning percentage. 1 == 100%
+        Returns the winning percentage. 
     */
     function getWinningPercentage() checkSenderValue returns(uint) {
         return 100 * tickets[msg.sender] / ticketAddresses.length;
@@ -113,8 +150,8 @@ contract Ethpot {
     /**
         Returns the number of accounts 
     */ 
-    function getParticipants() checkSenderValue returns(uint40) {
-        return participants;
+    function getParticipants() checkSenderValue returns(uint) {
+        return participants.length;
     }
 
     /**
@@ -124,14 +161,21 @@ contract Ethpot {
         return this.balance;
     }
 
-    function getTotalNumberOfTickets() returns(uint) {
+    function getTotalNumberOfTickets() checkSenderValue returns(uint) {
         return ticketAddresses.length;
+    }
+
+    /**
+        Set length of a round until next drawing in seconds
+    */
+    function setRoundDuration(uint24 roundDur) onlyOwner onlyNoParticipants {
+        roundDuration = roundDur * 1 seconds;
     }
 
     /**
         Set new ticket price in wei
     */
-    function setTicketPrice(uint newPrice) checkSenderValue onlyOwner {
+    function setTicketPrice(uint newPrice) onlyOwner onlyNoParticipants {
         ticketPrice = newPrice;
     }
 
@@ -145,12 +189,26 @@ contract Ethpot {
     /**
         Sets the lottery fee. Maximum possible fee 7%
     */
-    function setLotteryFee(uint8 newFee) checkSenderValue onlyOwner { // TODO: fee must only be set for next drawing not current one
+    function setLotteryFee(uint8 newFee) onlyOwner onlyNoParticipants { 
         if (newFee > 7) throw;
         lotteryFee = newFee;
     }
 
-    // TODO: halt lottery
+    /**
+        Starting with the next round, the lottery and any participation will be paused
+    */
+    function pauseLottery() onlyOwner {
+        lotteryEnabled = false;
+    }
+
+    /**
+        Resumes the lottery with an new round. This method only when there are not participants and the jackpot is empty. 
+        If the old round is still running, it has to be waited until the winner is drawn.
+    */
+    function resumeLottery(string secret) onlyOwner returns(uint) {
+        lotteryEnabled = true;
+        return newRound(secret);
+    }
 
     function transferOwnership(address newOwner) onlyOwner {
         owner = newOwner;
@@ -158,6 +216,22 @@ contract Ethpot {
 
     function kill() onlyOwner { 
         selfdestruct(owner); 
+    }
+
+    /**
+        Starts a new lottery round
+    */
+    function newRound(string secret) onlyLotteryEnabled onlyRoundNotActive onlyNoParticipants private returns(uint) {
+        updateSeed(secret);
+        currentRoundTimestamp = now;
+        return currentRoundTimestamp;
+    }
+
+    function resetLottery() private {
+        delete ticketAddresses; 
+        delete seed;
+        clearTicketsMapping();
+        delete participants;
     }
 
     function pushTickets(uint pticketCnt, address padr) private {
@@ -170,20 +244,13 @@ contract Ethpot {
         seed = sha3(seed, secret);
     }
 
-    function strConcat(string a, string b) private returns (string) {
-        bytes memory b_a = bytes(a);
-        bytes memory b_b = bytes(b);
-        string memory ab = new string(b_a.length + b_b.length);
-        bytes memory b_ab = bytes(ab);
-        uint k = 0;
-
-        for (uint i = 0; i < b_a.length; i++) b_ab[k++] = b_a[i];
-        for (i = 0; i < b_b.length; i++) b_ab[k++] = b_b[i];
-
-        return string(b_ab);
+    function clearTicketsMapping() private {
+        for (uint i = 0; i < participants.length; i++) {
+            tickets[participants[i].addr] = 0;
+        }
     }
 
-    function byte32ToBytes(bytes32 b) private returns (bytes) {
+    function bytes32ToBytes(bytes32 b) private returns (bytes) {
         bytes memory bm = new bytes(b.length);
         for (uint i = 0; i < b.length; i++) bm[i] = b[i];
         return bm;
@@ -204,7 +271,6 @@ contract Ethpot {
     }
 
     function uintToString(uint v) constant private returns (string) {
-        return string(byte32ToBytes(uintToBytes(v)));
+        return string(bytes32ToBytes(uintToBytes(v)));
     }
-
 }
