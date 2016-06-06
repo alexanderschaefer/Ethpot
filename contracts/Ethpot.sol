@@ -165,6 +165,10 @@ contract Ethpot {
         return ticketAddresses.length;
     }
 
+    function getRoundDuration() checkSenderValue returns(uint) {
+        return roundDuration;
+    }
+
     /**
         Set length of a round until next drawing in seconds
     */
