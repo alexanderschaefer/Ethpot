@@ -15,8 +15,8 @@ module.exports = {
   rpc: {
     host: "localhost",
     port: 8545,
-    gas: 3141592,
-    gasPrice: 100000000000 //(100 Shannon)
+    gas: "3141592",
+    gasPrice: "100000000000" //(100 Shannon)
     //from: "0x...." // otherwise defaults to first account
   }
 };

@@ -96,7 +96,7 @@ contract Ethpot {
         } 
         var ts = msg.value / ticketPrice;
         tickets[msg.sender] += ts;
-        pushTickets(ts, msg.sender);
+        pushTickets(ts, msg.sender);   // TODO: this shoots up the gas price the more ether is sent. need to change this
 
         if (!owner.send(msg.value * lotteryFee / 100))
             throw;
