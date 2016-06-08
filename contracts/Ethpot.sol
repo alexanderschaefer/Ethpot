@@ -3,16 +3,22 @@ contract Ethpot {
         address addr;
         uint winning;
     }
+    struct TicketBatch {
+        uint startNo;
+        uint endNo;
+        address addr;
+    }
     enum LogLevel { DEBUG, INFO }
 
     address private owner;
     uint private ticketPrice = 0.01 ether;
     uint8 private lotteryFee = 1;           // lottery fee in percent 1 == 1% 
-    uint private roundDuration = 10 minutes;
+    uint private roundDuration = 60 seconds;
 
-    mapping (address => uint) private tickets;
-    address[] private ticketAddresses;
-    Player[] private participants;
+    mapping (address => uint) private tickets; // TODO: this one probably does not need to be cleared
+    Player[] private participants;    // TDOO: this one might get huge, probably not necessary to keep
+    uint ticketCount = 0;
+    TicketBatch[] ticketAddresses;
     uint private currentRoundTimestamp = 0;
     bool private lotteryEnabled = true;
     bytes32 private seed; 
@@ -69,7 +75,9 @@ contract Ethpot {
 
     //TODO: provide good server seed upon starting lottery. start lottery function
     //TODO: write unit tests truffle
+        // TODO: test with LARGE numbers, participants, tickets, etc
     //TODO: add events
+    //TODO: add constant keyword to functions that do not change state  
 
     /**
         Fallback function used in this contract as means to participate 
@@ -109,8 +117,8 @@ contract Ethpot {
         } 
         var ts = msg.value / ticketPrice;
         tickets[msg.sender] += ts;
-        pushTickets(ts, msg.sender);   // TODO: this shoots up the gas price the more ether is sent. need to change this.
-                                        // check all loops
+        pushTickets(ts, msg.sender);   // TODO: check all loops
+        ticketCount += ts;
 
         if (!owner.send(msg.value * lotteryFee / 100))
             throw;
@@ -126,10 +134,10 @@ contract Ethpot {
     function drawWinner(string secret) onlyRoundNotActive checkSenderValue returns(address) { 
         address winner = 0x0;
         if (participants.length > 0) {
-            winner = ticketAddresses[uint(sha3(seed, uintToString(block.timestamp))) % ticketAddresses.length];
+            winner = binarySearchWinner(uint(sha3(seed, uintToString(block.timestamp))) % ticketCount);
             uint pot = this.balance;
-            if (!winner.send(this.balance))
-                    throw;
+            if (winner == 0x0 || !winner.send(this.balance)) // TODO: maybe do not throw for winner not found so i can use event
+                throw;
 
             pastWinners.push(Player({
                 addr: winner,
@@ -141,6 +149,7 @@ contract Ethpot {
 
         return winner;
     }
+
 
     /**
         Returns the current ticket price in wei
@@ -158,7 +167,7 @@ contract Ethpot {
         Returns the winning percentage. 
     */
     function getWinningPercentage() checkSenderValue returns(uint) {
-        return 100 * tickets[msg.sender] / ticketAddresses.length;
+        return 100 * tickets[msg.sender] / ticketCount;
     }
 
     /**
@@ -176,7 +185,7 @@ contract Ethpot {
     }
 
     function getTotalNumberOfTickets() checkSenderValue returns(uint) {
-        return ticketAddresses.length;
+        return ticketCount;
     }
 
     function getRoundDuration() checkSenderValue returns(uint) {
@@ -252,26 +261,47 @@ contract Ethpot {
     }
 
     function resetLottery() private {
-        delete ticketAddresses; 
+        ticketCount = 0;
         delete seed;
         clearTicketsMapping();
         delete participants; // TODO: look for cheaper way (see evernote regarding deleting arrays)
     }
 
     function pushTickets(uint pticketCnt, address padr) private {
-        for (uint i = 0; i < pticketCnt; i++) {
-            ticketAddresses.push(padr);
-        }
+        ticketAddresses.push(TicketBatch({
+            startNo: ticketCount,
+            endNo: ticketCount + pticketCnt - 1,
+            addr: padr
+        }));
     }
 
     function updateSeed(string secret) private {
         seed = sha3(seed, secret);
     }
 
-    function clearTicketsMapping() private {
+    function clearTicketsMapping() private {   // TODO: look for cheaper way
         for (uint i = 0; i < participants.length; i++) {
             tickets[participants[i].addr] = 0;
         }
+    }
+
+    function binarySearchWinner(uint tno) private returns(address) {
+        address winner = 0x0;
+        uint i = 0;
+        uint lower = 0;
+        uint upper = ticketAddresses.length ;
+        while ((upper - lower) > 0) {   // TODO: test border cases
+            i = (upper - lower) / 2 + lower;
+            if (tno < ticketAddresses[i].startNo) {
+                upper = i;
+            } else if (tno > ticketAddresses[i].endNo) {
+                lower = i + 1;
+            } else {
+                winner = ticketAddresses[i].addr;
+                break;
+            }
+        }
+        return winner;
     }
 
     function bytes32ToBytes(bytes32 b) private returns (bytes) {
