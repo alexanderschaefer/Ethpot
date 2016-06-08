@@ -3,11 +3,12 @@ contract Ethpot {
         address addr;
         uint winning;
     }
+    enum LogLevel { DEBUG, INFO }
 
     address private owner;
     uint private ticketPrice = 0.01 ether;
     uint8 private lotteryFee = 1;           // lottery fee in percent 1 == 1% 
-    uint private roundDuration = 1 days;
+    uint private roundDuration = 10 minutes;
 
     mapping (address => uint) private tickets;
     address[] private ticketAddresses;
@@ -16,6 +17,14 @@ contract Ethpot {
     bool private lotteryEnabled = true;
     bytes32 private seed; 
     Player[] public pastWinners; 
+
+    event event_Log(
+        uint8 indexed _loglevel,
+        string _description,
+        string _svalue,
+        bool _bvalue,
+        uint _uvalue
+    );
 
     modifier onlyOwner() {
         if (msg.sender != owner) throw;
@@ -28,7 +37,9 @@ contract Ethpot {
     }
 
     modifier onlyRoundActive() {
-        if (currentRoundTimestamp + roundDuration <= now) throw;
+        bool _throw = (currentRoundTimestamp + roundDuration <= now);
+        event_Log(uint8(LogLevel.DEBUG), "onlyRoundActive, bool throw", "", _throw, 0);
+        if (_throw) throw;
         _
     }
 
@@ -38,7 +49,7 @@ contract Ethpot {
     }
 
     modifier onlyNoParticipants() { 
-        if (participants.length > 0) throw;
+        if (participants.length > 0) throw; // TODO: better replace the throws with ifs? to be cheaper
         _
     }
 
@@ -58,6 +69,7 @@ contract Ethpot {
 
     //TODO: provide good server seed upon starting lottery. start lottery function
     //TODO: write unit tests truffle
+    //TODO: add events
 
     /**
         Fallback function used in this contract as means to participate 
@@ -77,7 +89,8 @@ contract Ethpot {
         ETH to the sender. 
         Takes random string secret for seed
     */
-    function buyTickets(string secret) onlyRoundActive {  
+    function buyTickets(string secret) onlyRoundActive {    // TODO: use events for debugging
+        event_Log(uint8(LogLevel.DEBUG), "Entered Buy Tickets", "", false, 0);
         if (msg.value < ticketPrice) throw;
 
         updateSeed(secret);
@@ -88,7 +101,7 @@ contract Ethpot {
                 throw;
         }
 
-        if (tickets[msg.sender] == 0) {
+        if (tickets[msg.sender] == 0) { // TODO: for game contract later might need to use tx.origin to get actual sender?!
             participants.push(Player({
                 addr: msg.sender,
                 winning: 0
@@ -96,7 +109,8 @@ contract Ethpot {
         } 
         var ts = msg.value / ticketPrice;
         tickets[msg.sender] += ts;
-        pushTickets(ts, msg.sender);   // TODO: this shoots up the gas price the more ether is sent. need to change this
+        pushTickets(ts, msg.sender);   // TODO: this shoots up the gas price the more ether is sent. need to change this.
+                                        // check all loops
 
         if (!owner.send(msg.value * lotteryFee / 100))
             throw;
@@ -176,10 +190,16 @@ contract Ethpot {
         roundDuration = roundDur * 1 seconds;
     }
 
+    function getRoundTimeLeft() returns(uint) {
+        int timeLeft = int((currentRoundTimestamp + roundDuration) - now);
+        if (timeLeft < 0) timeLeft = 0;
+        return uint(timeLeft);
+    }
+
     /**
         Set new ticket price in wei
     */
-    function setTicketPrice(uint newPrice) onlyOwner onlyNoParticipants {
+    function setTicketPrice(uint newPrice) onlyOwner onlyNoParticipants { // TODO: mist says it uses all gas!?!?!?! cannot be
         ticketPrice = newPrice;
     }
 
@@ -218,7 +238,7 @@ contract Ethpot {
         owner = newOwner;
     }
 
-    function kill() onlyOwner { 
+    function kill() onlyOwner onlyNoParticipants { 
         selfdestruct(owner); 
     }
 
@@ -235,7 +255,7 @@ contract Ethpot {
         delete ticketAddresses; 
         delete seed;
         clearTicketsMapping();
-        delete participants;
+        delete participants; // TODO: look for cheaper way (see evernote regarding deleting arrays)
     }
 
     function pushTickets(uint pticketCnt, address padr) private {
