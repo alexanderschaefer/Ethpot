@@ -8,21 +8,24 @@ contract Ethpot {
         uint endNo;
         address addr;
     }
+    struct Tickets {
+        uint ticketCnt;
+        uint timestamp;
+    }
     enum LogLevel { DEBUG, INFO }
 
     address private owner;
-    uint private ticketPrice = 0.01 ether;
-    uint8 private lotteryFee = 1;           // lottery fee in percent 1 == 1% 
-    uint private roundDuration = 60 seconds;
+    uint public ticketPrice = 0.01 ether;     
+    uint8 public lotteryFee = 1;              // lottery fee in percent 1 == 1% 
+    uint public roundDuration = 3 minutes;
 
-    mapping (address => uint) private tickets; // TODO: this one probably does not need to be cleared
-    Player[] private participants;    // TDOO: this one might get huge, probably not necessary to keep
-    uint ticketCount = 0;
-    TicketBatch[] ticketAddresses;
+    uint public ticketCount = 0;
+    mapping (address => Tickets) private tickets; 
+    TicketBatch[] private ticketAddresses;
     uint private currentRoundTimestamp = 0;
     bool private lotteryEnabled = true;
     bytes32 private seed; 
-    Player[] public pastWinners; 
+    Player[] public pastWinners; // TODO: keep only last 10
 
     event event_Log(
         uint8 indexed _loglevel,
@@ -55,7 +58,7 @@ contract Ethpot {
     }
 
     modifier onlyNoParticipants() { 
-        if (participants.length > 0) throw; // TODO: better replace the throws with ifs? to be cheaper
+        if (ticketCount> 0) throw; // TODO: better replace the throws with ifs? to be cheaper
         _
     }
 
@@ -77,7 +80,8 @@ contract Ethpot {
     //TODO: write unit tests truffle
         // TODO: test with LARGE numbers, participants, tickets, etc
     //TODO: add events
-    //TODO: add constant keyword to functions that do not change state  
+    //TODO: add constant keyword to functions that do not change state
+    //TODO: add comments to weird constructs used to save gas  
 
     /**
         Fallback function used in this contract as means to participate 
@@ -109,14 +113,8 @@ contract Ethpot {
                 throw;
         }
 
-        if (tickets[msg.sender] == 0) { // TODO: for game contract later might need to use tx.origin to get actual sender?!
-            participants.push(Player({
-                addr: msg.sender,
-                winning: 0
-            }));
-        } 
         var ts = msg.value / ticketPrice;
-        tickets[msg.sender] += ts;
+        updateTicketsMap(msg.sender, ts); // TODO: for game contract later might need to use tx.origin to get actual sender?! 
         pushTickets(ts, msg.sender);   // TODO: check all loops
         ticketCount += ts;
 
@@ -133,7 +131,7 @@ contract Ethpot {
     */
     function drawWinner(string secret) onlyRoundNotActive checkSenderValue returns(address) { 
         address winner = 0x0;
-        if (participants.length > 0) {
+        if (ticketCount > 0) {
             winner = binarySearchWinner(uint(sha3(seed, uintToString(block.timestamp))) % ticketCount);
             uint pot = this.balance;
             if (winner == 0x0 || !winner.send(this.balance)) // TODO: maybe do not throw for winner not found so i can use event
@@ -150,31 +148,19 @@ contract Ethpot {
         return winner;
     }
 
-
-    /**
-        Returns the current ticket price in wei
-    */
-    function getTicketPrice() checkSenderValue returns(uint) {
-        return ticketPrice;
-    }
-
     // TODO: this can be a smaller int?
     function getTickets() checkSenderValue returns(uint) {
-        return tickets[msg.sender];
+        if (tickets[msg.sender].timestamp + roundDuration < now) return 0;
+        return tickets[msg.sender].ticketCnt;
     }
 
     /**
         Returns the winning percentage. 
     */
     function getWinningPercentage() checkSenderValue returns(uint) {
-        return 100 * tickets[msg.sender] / ticketCount;
-    }
-
-    /**
-        Returns the number of accounts 
-    */ 
-    function getParticipants() checkSenderValue returns(uint) {
-        return participants.length;
+        uint ts = tickets[msg.sender].ticketCnt;
+        if (tickets[msg.sender].timestamp + roundDuration < now) ts = 0;
+        return 100 * ts / ticketCount;
     }
 
     /**
@@ -184,12 +170,10 @@ contract Ethpot {
         return this.balance;
     }
 
-    function getTotalNumberOfTickets() checkSenderValue returns(uint) {
-        return ticketCount;
-    }
-
-    function getRoundDuration() checkSenderValue returns(uint) {
-        return roundDuration;
+    function getRoundTimeLeft() returns(uint) {
+        int timeLeft = int((currentRoundTimestamp + roundDuration) - now);
+        if (timeLeft < 0) timeLeft = 0;
+        return uint(timeLeft);
     }
 
     /**
@@ -199,24 +183,12 @@ contract Ethpot {
         roundDuration = roundDur * 1 seconds;
     }
 
-    function getRoundTimeLeft() returns(uint) {
-        int timeLeft = int((currentRoundTimestamp + roundDuration) - now);
-        if (timeLeft < 0) timeLeft = 0;
-        return uint(timeLeft);
-    }
 
     /**
         Set new ticket price in wei
     */
     function setTicketPrice(uint newPrice) onlyOwner onlyNoParticipants { // TODO: mist says it uses all gas!?!?!?! cannot be
         ticketPrice = newPrice;
-    }
-
-    /**
-        Returns lottery fee in percent. 1 == 1%
-    */
-    function getLotteryFee() checkSenderValue returns(uint8) {
-        return lotteryFee;
     }
 
     /**
@@ -263,8 +235,7 @@ contract Ethpot {
     function resetLottery() private {
         ticketCount = 0;
         delete seed;
-        clearTicketsMapping();
-        delete participants; // TODO: look for cheaper way (see evernote regarding deleting arrays)
+        delete ticketAddresses; // TODO: look for cheaper way (see evernote regarding deleting arrays)
     }
 
     function pushTickets(uint pticketCnt, address padr) private {
@@ -275,14 +246,14 @@ contract Ethpot {
         }));
     }
 
-    function updateSeed(string secret) private {
-        seed = sha3(seed, secret);
+    function updateTicketsMap(address addr, uint ts) private {
+        if (tickets[addr].timestamp + roundDuration < now) tickets[addr].ticketCnt = 0;
+        tickets[addr].timestamp = now;
+        tickets[addr].ticketCnt += ts;
     }
 
-    function clearTicketsMapping() private {   // TODO: look for cheaper way
-        for (uint i = 0; i < participants.length; i++) {
-            tickets[participants[i].addr] = 0;
-        }
+    function updateSeed(string secret) private {
+        seed = sha3(seed, secret);
     }
 
     function binarySearchWinner(uint tno) private returns(address) {
