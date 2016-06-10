@@ -2,6 +2,7 @@ contract Ethpot {
     struct Player {
         address addr;
         uint winning;
+        uint timestamp;
     }
     struct TicketBatch {
         uint startNo;
@@ -12,29 +13,21 @@ contract Ethpot {
         uint ticketCnt;
         uint timestamp;
     }
-    enum LogLevel { DEBUG, INFO }
 
     address private owner;
     uint public ticketPrice = 0.01 ether;     
     uint8 public lotteryFee = 1;              // lottery fee in percent 1 == 1% 
     uint public roundDuration = 60 seconds;
 
+    Player[10] public pastWinners;            // last 10 winners
+    uint public pastWinnersCount = 0;
     uint public ticketCount = 0;
     mapping (address => Tickets) private tickets; 
     TicketBatch[] private ticketAddresses;
-    uint private ticketAddresses_length = 0; // keeping track of array length separately. saves gas because we do not need to delete the array upon new round
+    uint private ticketAddresses_length = 0;  // keeping track of array length separately. saves gas because we do not need to delete the array upon new round
     uint private currentRoundTimestamp = 0;
     bool private lotteryEnabled = true;
     bytes32 private seed; 
-    Player[] public pastWinners; // TODO: keep only last 10
-
-    event event_Log(
-        uint8 indexed _loglevel,
-        string _description,
-        string _svalue,
-        bool _bvalue,
-        uint _uvalue
-    );
 
     modifier onlyOwner() {
         if (msg.sender != owner) throw;
@@ -47,9 +40,7 @@ contract Ethpot {
     }
 
     modifier onlyRoundActive() {
-        bool _throw = (currentRoundTimestamp + roundDuration <= now);
-        event_Log(uint8(LogLevel.DEBUG), "onlyRoundActive, bool throw", "", _throw, 0);
-        if (_throw) throw;
+        if (currentRoundTimestamp + roundDuration <= now) throw;
         _
     }
 
@@ -84,7 +75,6 @@ contract Ethpot {
     //TODO: add constant keyword to functions that do not change state
     //TODO: add comments to weird constructs used to save gas  
     // TODO: would be nice to know number of participants. can we figure that out in JS?
-    //TODO: get rid of unneccesary events
 
     /**
         Fallback function used in this contract as means to participate 
@@ -104,8 +94,7 @@ contract Ethpot {
         ETH to the sender. 
         Takes random string secret for seed
     */
-    function buyTickets(string secret) onlyRoundActive {    // TODO: use events for debugging
-        event_Log(uint8(LogLevel.DEBUG), "Entered Buy Tickets", "", false, 0);
+    function buyTickets(string secret) onlyRoundActive {    
         if (msg.value < ticketPrice) throw;
 
         updateSeed(secret);
@@ -140,10 +129,7 @@ contract Ethpot {
             if (winner == 0x0 || !winner.send(this.balance)) // TODO: maybe do not throw for winner not found so i can use event
                 throw;
 
-            pastWinners.push(Player({
-                addr: winner,
-                winning: pot
-            }));
+            pushPastWinners(winner, pot);
         }
         resetLottery();
         if (lotteryEnabled) newRound(secret);  
@@ -240,6 +226,14 @@ contract Ethpot {
         delete seed;
         clearTicketAddresses(); // TODO: look for cheaper way (see evernote regarding deleting arrays)
     } 
+    
+    function pushPastWinners(address addr, uint winning) private {
+        pastWinners[(++pastWinnersCount % 10) - 1] = Player({
+            addr: addr,
+            winning: winning,
+            timestamp: now
+        });
+    }
     
     /**
         Deleting an array can cost alot of gas if the array is large. To save gas, we never actually delete the array,
