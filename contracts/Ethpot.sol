@@ -17,11 +17,12 @@ contract Ethpot {
     address private owner;
     uint public ticketPrice = 0.01 ether;     
     uint8 public lotteryFee = 1;              // lottery fee in percent 1 == 1% 
-    uint public roundDuration = 3 minutes;
+    uint public roundDuration = 60 seconds;
 
     uint public ticketCount = 0;
     mapping (address => Tickets) private tickets; 
     TicketBatch[] private ticketAddresses;
+    uint private ticketAddresses_length = 0; // keeping track of array length separately. saves gas because we do not need to delete the array upon new round
     uint private currentRoundTimestamp = 0;
     bool private lotteryEnabled = true;
     bytes32 private seed; 
@@ -41,7 +42,7 @@ contract Ethpot {
     }
 
     modifier onlyLotteryEnabled() {
-        if (!lotteryEnabled) throw; 
+        if (!lotteryEnabled) throw;
         _
     }
 
@@ -82,6 +83,8 @@ contract Ethpot {
     //TODO: add events
     //TODO: add constant keyword to functions that do not change state
     //TODO: add comments to weird constructs used to save gas  
+    // TODO: would be nice to know number of participants. can we figure that out in JS?
+    //TODO: get rid of unneccesary events
 
     /**
         Fallback function used in this contract as means to participate 
@@ -115,7 +118,7 @@ contract Ethpot {
 
         var ts = msg.value / ticketPrice;
         updateTicketsMap(msg.sender, ts); // TODO: for game contract later might need to use tx.origin to get actual sender?! 
-        pushTickets(ts, msg.sender);   // TODO: check all loops
+        pushTicketAddresses(ts, msg.sender);   // TODO: check all loops
         ticketCount += ts;
 
         if (!owner.send(msg.value * lotteryFee / 100))
@@ -235,15 +238,24 @@ contract Ethpot {
     function resetLottery() private {
         ticketCount = 0;
         delete seed;
-        delete ticketAddresses; // TODO: look for cheaper way (see evernote regarding deleting arrays)
-    }
-
-    function pushTickets(uint pticketCnt, address padr) private {
-        ticketAddresses.push(TicketBatch({
+        clearTicketAddresses(); // TODO: look for cheaper way (see evernote regarding deleting arrays)
+    } 
+    
+    /**
+        Deleting an array can cost alot of gas if the array is large. To save gas, we never actually delete the array,
+        but keep track of its actual length in a separate counter
+    */
+    function pushTicketAddresses(uint pticketCnt, address paddr) {
+        if (ticketAddresses_length == ticketAddresses.length) ticketAddresses.length++;
+        ticketAddresses[ticketAddresses_length++] = TicketBatch({
             startNo: ticketCount,
             endNo: ticketCount + pticketCnt - 1,
-            addr: padr
-        }));
+            addr: paddr
+        });
+    }
+    
+    function clearTicketAddresses() {
+        ticketAddresses_length = 0;
     }
 
     function updateTicketsMap(address addr, uint ts) private {
@@ -260,7 +272,7 @@ contract Ethpot {
         address winner = 0x0;
         uint i = 0;
         uint lower = 0;
-        uint upper = ticketAddresses.length ;
+        uint upper = ticketAddresses_length ;
         while ((upper - lower) > 0) {   // TODO: test border cases
             i = (upper - lower) / 2 + lower;
             if (tno < ticketAddresses[i].startNo) {
