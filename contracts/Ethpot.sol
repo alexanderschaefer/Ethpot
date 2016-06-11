@@ -55,7 +55,7 @@ contract Ethpot {
     }
 
     modifier checkSenderValue() {
-        if (msg.value > 0) buyTickets(uintToString(block.timestamp));
+        if (msg.value > 0) buyTickets("");
         _
     }
 
@@ -80,12 +80,12 @@ contract Ethpot {
         Fallback function used in this contract as means to participate 
         in the lottery. An account sending ETH to the contract, without data,
         is interpreted as buying tickets.
-        Seeds with current block time stamp
-        An account may also call buyTickets directly in order to provide its own
-        secret
+        No string seed provided here if user chooses this way instead of calling 'buyTickets(string secret)'.
+        However, by default seed is always complemented with current block time stamp
+        To provide an own string secret, n account shall  call buyTickets directly 
     */
     function () {
-        buyTickets(uintToString(block.timestamp));
+        buyTickets("");
     }
 
     /**
@@ -107,7 +107,7 @@ contract Ethpot {
 
         var ts = msg.value / ticketPrice;
         updateTicketsMap(msg.sender, ts); // TODO: for game contract later might need to use tx.origin to get actual sender?! 
-        pushTicketAddresses(ts, msg.sender);   // TODO: check all loops
+        pushTicketAddresses(ts, msg.sender); 
         ticketCount += ts;
 
         if (!owner.send(msg.value * lotteryFee / 100))
@@ -124,7 +124,7 @@ contract Ethpot {
     function drawWinner(string secret) onlyRoundNotActive checkSenderValue returns(address) { 
         address winner = 0x0;
         if (ticketCount > 0) {
-            winner = binarySearchWinner(uint(sha3(seed, uintToString(block.timestamp))) % ticketCount);
+            winner = binarySearchWinner(uint(sha3(seed, block.timestamp)) % ticketCount);
             uint pot = this.balance;
             if (winner == 0x0 || !winner.send(this.balance)) // TODO: maybe do not throw for winner not found so i can use event
                 throw;
@@ -224,7 +224,7 @@ contract Ethpot {
     function resetLottery() private {
         ticketCount = 0;
         delete seed;
-        clearTicketAddresses(); // TODO: look for cheaper way (see evernote regarding deleting arrays)
+        clearTicketAddresses(); 
     } 
     
     function pushPastWinners(address addr, uint winning) private {
@@ -259,7 +259,7 @@ contract Ethpot {
     }
 
     function updateSeed(string secret) private {
-        seed = sha3(seed, secret);
+        seed = sha3(seed, secret, now);
     }
 
     function binarySearchWinner(uint tno) private returns(address) {
@@ -279,29 +279,5 @@ contract Ethpot {
             }
         }
         return winner;
-    }
-
-    function bytes32ToBytes(bytes32 b) private returns (bytes) {
-        bytes memory bm = new bytes(b.length);
-        for (uint i = 0; i < b.length; i++) bm[i] = b[i];
-        return bm;
-    }
-
-    function uintToBytes(uint v) constant private returns (bytes32 ret) {
-        if (v == 0) {
-            ret = '0';
-        }
-        else {
-            while (v > 0) {
-                ret = bytes32(uint(ret) / (2 ** 8));
-                ret |= bytes32(((v % 10) + 48) * 2 ** (8 * 31));
-                v /= 10;
-            }
-        }
-        return ret;
-    }
-
-    function uintToString(uint v) constant private returns (string) {
-        return string(bytes32ToBytes(uintToBytes(v)));
     }
 }
