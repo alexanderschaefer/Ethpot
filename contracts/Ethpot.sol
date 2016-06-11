@@ -22,6 +22,7 @@ contract Ethpot {
     Player[10] public pastWinners;            // last 10 winners
     uint public pastWinnersCount = 0;
     uint public ticketCount = 0;
+    uint public participantCount = 0;
     mapping (address => Tickets) private tickets; 
     TicketBatch[] private ticketAddresses;
     uint private ticketAddresses_length = 0;  // keeping track of array length separately. saves gas because we do not need to delete the array upon new round
@@ -71,9 +72,7 @@ contract Ethpot {
     //TODO: provide good server seed upon starting lottery. start lottery function
     //TODO: write unit tests truffle
         // TODO: test with LARGE numbers, participants, tickets, etc
-    //TODO: add events
-    //TODO: add comments to weird constructs used to save gas  
-    // TODO: would be nice to know number of participants. can we figure that out in JS?
+    //TODO: add events 
 
     /**
         Fallback function used in this contract as means to participate 
@@ -222,7 +221,7 @@ contract Ethpot {
 
     function resetLottery() private {
         ticketCount = 0;
-        delete seed;
+        participantCount = 0;
         clearTicketAddresses(); 
     } 
     
@@ -252,7 +251,10 @@ contract Ethpot {
     }
 
     function updateTicketsMap(address addr, uint ts) private {
-        if (tickets[addr].timestamp + roundDuration < now) tickets[addr].ticketCnt = 0;
+        if (tickets[addr].timestamp + roundDuration < now) {
+            tickets[addr].ticketCnt = 0;
+            participantCount++;
+        }
         tickets[addr].timestamp = now;
         tickets[addr].ticketCnt += ts;
     }
