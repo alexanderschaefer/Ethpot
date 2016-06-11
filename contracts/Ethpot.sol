@@ -72,7 +72,6 @@ contract Ethpot {
     //TODO: write unit tests truffle
         // TODO: test with LARGE numbers, participants, tickets, etc
     //TODO: add events
-    //TODO: add constant keyword to functions that do not change state
     //TODO: add comments to weird constructs used to save gas  
     // TODO: would be nice to know number of participants. can we figure that out in JS?
 
@@ -138,7 +137,7 @@ contract Ethpot {
     }
 
     // TODO: this can be a smaller int?
-    function getTickets() checkSenderValue returns(uint) {
+    function getTickets() constant checkSenderValue returns(uint) {
         if (tickets[msg.sender].timestamp + roundDuration < now) return 0;
         return tickets[msg.sender].ticketCnt;
     }
@@ -146,7 +145,7 @@ contract Ethpot {
     /**
         Returns the winning percentage. 
     */
-    function getWinningPercentage() checkSenderValue returns(uint) {
+    function getWinningPercentage() constant checkSenderValue returns(uint) {
         uint ts = tickets[msg.sender].ticketCnt;
         if (tickets[msg.sender].timestamp + roundDuration < now) ts = 0;
         return 100 * ts / ticketCount;
@@ -155,11 +154,11 @@ contract Ethpot {
     /**
         Returns the current jackpot size in wei
     */
-    function getCurrentJackpot() checkSenderValue returns(uint) {
+    function getCurrentJackpot() constant checkSenderValue returns(uint) {
         return this.balance;
     }
 
-    function getRoundTimeLeft() returns(uint) {
+    function getRoundTimeLeft() constant returns(uint) {
         int timeLeft = int((currentRoundTimestamp + roundDuration) - now);
         if (timeLeft < 0) timeLeft = 0;
         return uint(timeLeft);
@@ -262,7 +261,7 @@ contract Ethpot {
         seed = sha3(seed, secret, now);
     }
 
-    function binarySearchWinner(uint tno) private returns(address) {
+    function binarySearchWinner(uint tno) constant private returns(address) {
         address winner = 0x0;
         uint i = 0;
         uint lower = 0;
